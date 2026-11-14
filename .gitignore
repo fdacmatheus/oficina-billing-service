@@ -1,0 +1,27 @@
+# build
+dist/
+node_modules/
+*.tsbuildinfo
+
+# testes
+coverage/
+
+# logs
+*.log
+
+# env: so o exemplo e versionado
+.env
+.env.*
+!.env.example
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan

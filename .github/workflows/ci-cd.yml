@@ -1,0 +1,117 @@
+name: CI/CD · Billing Service
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: oficina-billing-service
+  EKS_CLUSTER: oficina-eks
+  NAMESPACE: oficina
+  DEPLOYMENT: oficina-billing-service
+
+permissions:
+  contents: read
+
+jobs:
+  qualidade:
+    name: Lint, testes, segredos e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # o gitleaks varre o historico
+
+      - uses: pnpm/action-setup@v4 # versao lida do packageManager
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: ESLint
+        run: pnpm lint
+
+      - name: Testes com cobertura (minimo 95%)
+        run: pnpm test:cov
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+      - name: Build da imagem
+        run: docker build -t "$ECR_REPOSITORY:${{ github.sha }}" .
+
+  deploy:
+    name: Push no ECR e deploy no EKS
+    needs: qualidade
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DEPLOY_ENABLED == 'true'
+    environment: producao
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+
+      - name: Build e push com a tag do commit
+        id: imagem
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" >/dev/null 2>&1 \
+            || aws ecr create-repository --repository-name "$ECR_REPOSITORY" --image-scanning-configuration scanOnPush=true
+          IMAGEM="$REGISTRY/$ECR_REPOSITORY:${{ github.sha }}"
+          docker build -t "$IMAGEM" .
+          docker push "$IMAGEM"
+          echo "imagem=$IMAGEM" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar o kubectl
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+
+      - name: Criar/atualizar o Secret a partir do Secrets Manager
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          MP_ACCESS_TOKEN: ${{ secrets.MP_ACCESS_TOKEN }}
+          MP_WEBHOOK_SECRET: ${{ secrets.MP_WEBHOOK_SECRET }}
+        run: |
+          kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
+          DB=$(aws secretsmanager get-secret-value --secret-id oficina/billing/database --query SecretString --output text)
+          # Os valores nunca vao para o log: so passam por variavel e stdin.
+          kubectl -n "$NAMESPACE" create secret generic oficina-billing-secrets \
+            --from-literal=DB_HOST="$(echo "$DB" | jq -r .DB_HOST)" \
+            --from-literal=DB_PORT="$(echo "$DB" | jq -r .DB_PORT)" \
+            --from-literal=DB_NAME="$(echo "$DB" | jq -r .DB_NAME)" \
+            --from-literal=DB_USER="$(echo "$DB" | jq -r .DB_USER)" \
+            --from-literal=DB_PASSWORD="$(echo "$DB" | jq -r .DB_PASSWORD)" \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=MP_ACCESS_TOKEN="$MP_ACCESS_TOKEN" \
+            --from-literal=MP_WEBHOOK_SECRET="$MP_WEBHOOK_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Aplicar manifestos
+        run: |
+          CONTA=$(aws sts get-caller-identity --query Account --output text)
+          sed -i "s|ACCOUNT_ID_PLACEHOLDER|$CONTA|g" k8s/configmap.yaml
+          sed -i "s|IMAGEM_PLACEHOLDER|${{ steps.imagem.outputs.imagem }}|g" k8s/deployment.yaml
+          kubectl apply -f k8s/
+
+      - name: Atualizar imagem e aguardar rollout
+        run: |
+          kubectl -n "$NAMESPACE" set image "deployment/$DEPLOYMENT" api="${{ steps.imagem.outputs.imagem }}"
+          kubectl -n "$NAMESPACE" rollout status "deployment/$DEPLOYMENT" --timeout=5m

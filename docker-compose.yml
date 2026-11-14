@@ -1,0 +1,23 @@
+# Sobe só a API do billing. A infra (Floci, Postgres do billing, observabilidade)
+# vem de fase-4/local/docker-compose.yml, cuja rede é usada aqui como externa.
+name: oficina-billing
+
+services:
+  api:
+    build: .
+    env_file: [.env]
+    environment:
+      LOG_FORMAT: json
+      DB_HOST: postgres-billing
+      DB_PORT: 5432
+      AWS_ENDPOINT_URL: http://floci:4566
+      SQS_BILLING_COMANDOS_URL: http://floci:4566/000000000000/billing-comandos
+      SQS_OS_EVENTOS_URL: http://floci:4566/000000000000/os-eventos
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    ports: ['3002:3002']
+    networks: [oficina-local]
+
+networks:
+  oficina-local:
+    name: oficina-local_default
+    external: true

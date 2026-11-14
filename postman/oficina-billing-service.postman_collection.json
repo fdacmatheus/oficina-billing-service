@@ -1,0 +1,370 @@
+{
+  "info": {
+    "name": "oficina-billing-service",
+    "description": "Rotas do billing-service (Fase 4). Os comandos (GerarOrcamento etc.) chegam pela fila SQS billing-comandos; o orcamentoId e o token saem do linkAprovacao do evento OrcamentoGerado.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3002/api"
+    },
+    {
+      "key": "orcamentoId",
+      "value": ""
+    },
+    {
+      "key": "tokenAprovacao",
+      "value": ""
+    },
+    {
+      "key": "pagamentoId",
+      "value": ""
+    },
+    {
+      "key": "osId",
+      "value": ""
+    },
+    {
+      "key": "jwt",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "infra",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Métricas Prometheus",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            },
+            "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "publico (link do orçamento)",
+      "item": [
+        {
+          "name": "Consultar orçamento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/publico/orcamentos/{{orcamentoId}}?token={{tokenAprovacao}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "publico",
+                "orcamentos",
+                "{{orcamentoId}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAprovacao}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Aprovar orçamento",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/publico/orcamentos/{{orcamentoId}}/aprovar?token={{tokenAprovacao}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "publico",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "aprovar"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAprovacao}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Recusar orçamento",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/publico/orcamentos/{{orcamentoId}}/recusar?token={{tokenAprovacao}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "publico",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "recusar"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAprovacao}}"
+                }
+              ]
+            },
+            "description": ""
+          }
+        },
+        {
+          "name": "Pagar (aprovado no modo fake)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/publico/orcamentos/{{orcamentoId}}/pagar?token={{tokenAprovacao}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "publico",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "pagar"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAprovacao}}"
+                }
+              ]
+            },
+            "description": "Exige pagamento AGUARDANDO (comando CobrarOrcamento já processado).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardToken\": \"fake-aprovado\",\n  \"paymentMethodId\": \"visa\",\n  \"installments\": 1,\n  \"payerEmail\": \"cliente@exemplo.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Pagar (recusado no modo fake)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/publico/orcamentos/{{orcamentoId}}/pagar?token={{tokenAprovacao}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "publico",
+                "orcamentos",
+                "{{orcamentoId}}",
+                "pagar"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAprovacao}}"
+                }
+              ]
+            },
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cardToken\": \"fake-recusado\",\n  \"paymentMethodId\": \"visa\",\n  \"installments\": 1,\n  \"payerEmail\": \"cliente@exemplo.com\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "admin (JWT)",
+      "item": [
+        {
+          "name": "Listar orçamentos da OS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orcamentos?osId={{osId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orcamentos"
+              ],
+              "query": [
+                {
+                  "key": "osId",
+                  "value": "{{osId}}"
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Detalhar orçamento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orcamentos/{{orcamentoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orcamentos",
+                "{{orcamentoId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Detalhar pagamento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pagamentos/{{pagamentoId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pagamentos",
+                "{{pagamentoId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "webhooks",
+      "item": [
+        {
+          "name": "Webhook Mercado Pago (order)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-signature",
+                "value": "ts=1763121600000,v1=<hmac-sha256-hex>"
+              },
+              {
+                "key": "x-request-id",
+                "value": "00000000-0000-0000-0000-000000000000"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/mercadopago?data.id=ORD01EXEMPLO&type=order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "mercadopago"
+              ],
+              "query": [
+                {
+                  "key": "data.id",
+                  "value": "ORD01EXEMPLO"
+                },
+                {
+                  "key": "type",
+                  "value": "order"
+                }
+              ]
+            },
+            "description": "Sem x-signature válido (HMAC-SHA256 com MP_WEBHOOK_SECRET sobre id:<data.id>;request-id:<x-request-id>;ts:<ts>;) responde 401.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"order\",\n  \"action\": \"order.processed\",\n  \"data\": {\n    \"id\": \"ORD01EXEMPLO\"\n  }\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
