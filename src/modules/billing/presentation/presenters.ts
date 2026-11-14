@@ -1,3 +1,4 @@
+import { motivoAmigavel } from './checkout/motivo-recusa';
 import { Orcamento } from '../domain/orcamento.entity';
 import { Pagamento } from '../domain/pagamento.entity';
 
@@ -24,4 +25,22 @@ export const apresentarPagamento = (p: Pagamento) => ({
   motivoRecusa: p.motivoRecusa,
   criadoEm: p.criadoEm,
   atualizadoEm: p.atualizadoEm,
+});
+
+/** Resposta das rotas publicas: o orcamento e o andamento do pagamento, sem dados do gateway. */
+export const apresentarConsultaPublica = ({
+  orcamento,
+  pagamento,
+}: {
+  orcamento: Orcamento;
+  pagamento: Pagamento | null;
+}) => ({
+  ...apresentarOrcamento(orcamento),
+  pagamento: pagamento && {
+    id: pagamento.id,
+    status: pagamento.status,
+    valor: pagamento.valor,
+    motivoRecusa: pagamento.motivoRecusa,
+    mensagemRecusa: pagamento.motivoRecusa ? motivoAmigavel(pagamento.motivoRecusa) : null,
+  },
 });

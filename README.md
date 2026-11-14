@@ -78,7 +78,8 @@ Prefixo `/api`; Swagger em `/docs`.
 |---|---|---|---|
 | GET | `/api/health` | — | Probe do Kubernetes |
 | GET | `/api/metrics` | — | Métricas Prometheus |
-| GET | `/api/publico/orcamentos/:id?token=` | token do orçamento | Detalhes do orçamento |
+| GET | `/api/publico/orcamentos/:id/checkout?token=` | token do orçamento | **Página do cliente** (HTML): revisar, aprovar e pagar |
+| GET | `/api/publico/orcamentos/:id?token=` | token | Orçamento + andamento do pagamento (`pagamento: { status, motivoRecusa, mensagemRecusa }`) |
 | POST | `/api/publico/orcamentos/:id/aprovar?token=` | token | APROVADO + `OrcamentoAprovado` |
 | POST | `/api/publico/orcamentos/:id/recusar?token=` | token | RECUSADO + `OrcamentoRecusado` |
 | POST | `/api/publico/orcamentos/:id/pagar?token=` | token | Body `{ cardToken, paymentMethodId, installments, payerEmail }`. Exige pagamento AGUARDANDO. |
@@ -113,9 +114,28 @@ A collection `postman/oficina-billing-service.postman_collection.json` cobre tod
    aws --endpoint-url=http://localhost:4566 sqs receive-message \
      --queue-url http://localhost:4566/000000000000/os-eventos --message-attribute-names All
    ```
-   O `OrcamentoGerado` traz o `linkAprovacao` com id e token para as rotas públicas.
+   O `OrcamentoGerado` traz o `linkAprovacao`: é a página de checkout (`/api/publico/orcamentos/{id}/checkout?token=...`), enviada ao cliente por e-mail pelo os-service.
 
 Com `MP_MODO=fake` (padrão) nenhum acesso ao Mercado Pago é feito: `cardToken` iniciado por `fake-recusado` é recusado, qualquer outro é aprovado. Para usar o Mercado Pago de verdade, `MP_MODO=mercadopago` com `MP_ACCESS_TOKEN` e `MP_WEBHOOK_SECRET` de teste no `.env` (nunca versionado).
+
+## Página de checkout
+
+O link do e-mail (`linkAprovacao`) abre uma página servida pelo próprio serviço (HTML, CSS e JS inline, sem framework, em `src/modules/billing/presentation/checkout/`). Ela mostra a OS, o cliente, os itens e o total, e conduz o cliente:
+
+1. **PENDENTE:** botões *Aprovar orçamento* e *Recusar* (a recusa pede confirmação).
+2. **Aprovado, sem cobrança ainda:** o os-service reserva o estoque e manda `CobrarOrcamento` (1 a 2 s). A página consulta `GET /api/publico/orcamentos/:id` a cada 1,5 s até existir pagamento AGUARDANDO; depois de 90 s oferece "Verificar novamente".
+3. **Pagamento:** com `MP_MODO=mercadopago`, o **Card Payment Brick** (`https://sdk.mercadopago.com/js/v2`, `locale: pt-BR`, crédito em até 12x) tokeniza o cartão no navegador. O `onSubmit` envia `{ cardToken: formData.token, paymentMethodId: formData.payment_method_id, installments, payerEmail: formData.payer.email }` para `POST .../pagar`. Com `MP_MODO=fake`, aparece um formulário de demonstração com os tokens `fake-aprovado` e `fake-recusado`.
+4. **Resultado:** aprovado ("a oficina já foi avisada"), recusado (motivo traduzido, ex.: `rejected_by_issuer` → "O banco emissor do cartão recusou o pagamento.", e o aviso de que o orçamento foi cancelado), em análise (a página se atualiza sozinha), recusado pelo cliente, cancelado ou estornado.
+
+Token inválido abre uma página de erro amigável (403); orçamento inexistente, 404. Todas as chamadas da página são relativas à própria URL, então ela funciona atrás do API Gateway com o prefixo `/billing` (`PUBLIC_BASE_URL=<gateway>/billing`). A resposta sai com `Referrer-Policy: no-referrer` (o token está na URL e não deve vazar para o SDK) e `Cache-Control: no-store`. O serviço não usa Helmet/CSP; se for adicionado, libere `sdk.mercadopago.com`, `*.mercadopago.com`, `*.mlstatic.com` e `secure-fields.mercadopago.com` (iframes dos campos do cartão).
+
+A `MP_PUBLIC_KEY` (chave pública do vendedor, usada pelo Brick) vem do ambiente; no Kubernetes ela vai no Secret, a partir do GitHub Secret `MP_PUBLIC_KEY`.
+
+| Pagamento (Card Payment Brick, sandbox) | Pagamento aprovado |
+|---|---|
+| ![Checkout com o Card Payment Brick](docs/checkout/pagamento.png) | ![Pagamento aprovado](docs/checkout/aprovado.png) |
+
+Para testar no sandbox: cartão Mastercard `5480 8328 0103 3311`, CVV `123`, validade `11/30`, CPF `12345678909`; titular `APRO` aprova e `OTHE` recusa (`rejected_by_issuer`).
 
 ## Observabilidade
 
@@ -142,14 +162,14 @@ Testes unitários do domínio, dos casos de uso (com unidade de trabalho em mem�
 ![Relatório de cobertura (istanbul)](docs/evidencias/cobertura.png)
 
 
-Resultado de `pnpm test:cov` (19 suítes, 102 testes):
+Resultado de `pnpm test:cov` (20 suítes, 120 testes):
 
 ```
 =============================== Coverage summary ===============================
-Statements   : 100% ( 792/792 )
-Branches     : 97.62% ( 247/253 )
-Functions    : 100% ( 201/201 )
-Lines        : 100% ( 691/691 )
+Statements   : 100% ( 849/849 )
+Branches     : 97.87% ( 276/282 )
+Functions    : 100% ( 215/215 )
+Lines        : 100% ( 742/742 )
 ================================================================================
 ```
 
@@ -182,6 +202,6 @@ Fora da cobertura: `main.ts`, `tracing.ts` (bootstrap), `*.module.ts`, DTOs e mi
 - **Inbox idempotente.** O `messageId` de cada comando entra em `mensagens_processadas` (`INSERT ... ON CONFLICT DO NOTHING`) na mesma transação do efeito. Mensagem repetida é apagada sem efeito. Se o handler falhar, a transação inteira volta, inclusive o inbox, e a mensagem é reentregue.
 - **Travas.** Leituras por id usam `SELECT ... FOR UPDATE`: o webhook e a resposta do checkout, ou aprovar e cancelar, não sobrescrevem um ao outro.
 - **Gateway como porta.** `PagamentoGateway` fica na camada de aplicação, com dois adapters: Mercado Pago e fake. O fake (`MP_MODO=fake`, padrão local e no CI) permite demonstrar a saga, inclusive a compensação por pagamento recusado, sem credenciais.
-- **API de Orders do Mercado Pago.** É a API atual do checkout transparente, com um só recurso para criar, consultar e estornar (`POST /v1/orders`, `GET /v1/orders/{id}`, `POST /v1/orders/{id}/refund`). Usamos `type: online` e `processing_mode: automatic`: a resposta já traz o resultado. `processed` → aprovado; HTTP 402 ou `failed`/`canceled`/`expired` → recusado (motivo = `status_detail` da transação); demais estados → continua aguardando e o webhook resolve. Idempotência: `X-Idempotency-Key = pagamentoId` na cobrança e `refund:{pagamentoId}` no estorno.
+- **API de Orders do Mercado Pago.** É a API atual do checkout transparente, com um só recurso para criar, consultar e estornar (`POST /v1/orders`, `GET /v1/orders/{id}`, `POST /v1/orders/{id}/refund`). Usamos `type: online` e `processing_mode: automatic`: a resposta já traz o resultado. `processed` → aprovado; HTTP 402 (o corpo traz `{ errors, data: <order> }`) ou `failed`/`canceled`/`expired` → recusado (motivo = `status_detail` da transação, ex.: `rejected_by_issuer`); demais estados → continua aguardando e o webhook resolve. Idempotência: `X-Idempotency-Key = pagamentoId` na cobrança e `refund:{pagamentoId}` no estorno.
 - **Webhook.** Valida `x-signature` (HMAC-SHA256 com `MP_WEBHOOK_SECRET` sobre `id:{data.id};request-id:{x-request-id};ts:{ts};`) e não confia no corpo: consulta a order na API antes de mudar o estado. Sem segredo configurado, todo webhook é rejeitado.
 - **Estorno dentro da transação.** O refund é chamado com a transação aberta, para que uma falha desfaça o inbox e a mensagem volte. Isso segura uma conexão até o timeout do gateway (10 s); aceitável no volume da oficina.

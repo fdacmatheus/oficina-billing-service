@@ -1,6 +1,7 @@
 import { ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { MetricasService } from '../../../shared/observabilidade/metricas.service';
 import { Orcamento } from '../domain/orcamento.entity';
+import { Pagamento } from '../domain/pagamento.entity';
 import { Transacao, UNIDADE_DE_TRABALHO, UnidadeDeTrabalho } from './portas';
 
 /** Consulta e resposta do cliente ao orcamento (link publico) e consultas administrativas. */
@@ -11,8 +12,15 @@ export class OrcamentosService {
     private readonly metricas: MetricasService,
   ) {}
 
-  consultarPublico(id: string, token: string | undefined): Promise<Orcamento> {
-    return this.uow.executar((tx) => exigirOrcamentoComToken(tx, id, token));
+  /** Orcamento e, se ja houve cobranca, o pagamento: tudo o que a pagina de checkout precisa. */
+  consultarPublico(
+    id: string,
+    token: string | undefined,
+  ): Promise<{ orcamento: Orcamento; pagamento: Pagamento | null }> {
+    return this.uow.executar(async (tx) => {
+      const orcamento = await exigirOrcamentoComToken(tx, id, token);
+      return { orcamento, pagamento: await tx.pagamentos.buscarPorOrcamentoId(orcamento.id) };
+    });
   }
 
   async aprovar(id: string, token: string | undefined): Promise<Orcamento> {

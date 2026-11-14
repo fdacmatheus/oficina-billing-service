@@ -89,12 +89,23 @@ describe('MercadoPagoGateway', () => {
     });
   });
 
-  it('402 vira RECUSADO com o status_detail da transação', async () => {
+  it('402 vira RECUSADO com o status_detail da transação (formato real do sandbox)', async () => {
     fetchMock.mockResolvedValue(
       resposta(402, {
-        id: 'ORD02',
-        status: 'failed',
-        transactions: { payments: [{ status: 'failed', status_detail: 'rejected_by_issuer' }] },
+        errors: [
+          {
+            code: 'failed',
+            message: 'The following transactions failed',
+            details: ['PAY01: rejected_by_issuer'],
+          },
+        ],
+        data: {
+          id: 'ORD02',
+          status: 'failed',
+          status_detail: 'failed',
+          external_reference: 'os-1',
+          transactions: { payments: [{ status: 'failed', status_detail: 'rejected_by_issuer' }] },
+        },
       }),
     );
     expect(await gateway.criarPagamento(dados)).toMatchObject({

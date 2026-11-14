@@ -14,6 +14,8 @@ interface OrderMercadoPago {
   external_reference?: string;
   transactions?: { payments?: Array<{ status?: string; status_detail?: string }> };
   errors?: Array<{ code?: string; message?: string }>;
+  /** No 402 a order vem embrulhada aqui, ao lado de `errors`. */
+  data?: OrderMercadoPago;
 }
 
 export interface ConfigMercadoPago {
@@ -74,7 +76,10 @@ export class MercadoPagoGateway implements PagamentoGateway {
         },
       },
     );
-    return this.traduzir(http === 402 ? { ...order, status: 'failed' } : order);
+    // 402: `{ errors, data: <order> }`, com o motivo em data.transactions.payments[0].status_detail.
+    return this.traduzir(
+      http === 402 ? { status: 'failed', errors: order.errors, ...order.data } : order,
+    );
   }
 
   async consultar(gatewayId: string): Promise<ResultadoGateway> {

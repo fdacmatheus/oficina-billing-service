@@ -1,4 +1,4 @@
-# Segredos (DB_*, JWT_SECRET, MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET) ficam no
+# Segredos (DB_*, JWT_SECRET, MP_ACCESS_TOKEN, MP_PUBLIC_KEY, MP_WEBHOOK_SECRET) ficam no
 # Secret oficina-billing-secrets, criado pelo pipeline a partir do Secrets
 # Manager; ele nao e versionado. O acesso ao SQS usa a LabRole dos nodes (o
 # AWS Academy nao permite IRSA), lida pelo SDK via metadata da instancia.

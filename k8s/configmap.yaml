@@ -23,6 +23,6 @@ data:
   OUTBOX_INTERVALO_MS: '1000'
   # Link do orcamento enviado ao cliente: endereco publico do API Gateway.
   PUBLIC_BASE_URL: 'https://api.oficina.exemplo.com.br'
-  MP_MODO: 'fake'
+  MP_MODO: 'mercadopago'
   MP_BASE_URL: 'https://api.mercadopago.com'
   MP_TIMEOUT_MS: '10000'

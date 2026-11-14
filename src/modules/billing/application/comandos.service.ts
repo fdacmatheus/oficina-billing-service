@@ -104,7 +104,8 @@ export class ComandosService {
         osId: orcamento.osId,
         orcamentoId: orcamento.id,
         valorTotal: orcamento.valorTotal,
-        linkAprovacao: `${this.baseUrl}/api/publico/orcamentos/${orcamento.id}?token=${orcamento.tokenAprovacao}`,
+        // Pagina de checkout: o cliente aprova e paga no mesmo link.
+        linkAprovacao: `${this.baseUrl}/api/publico/orcamentos/${orcamento.id}/checkout?token=${orcamento.tokenAprovacao}`,
       },
       correlationId,
     );

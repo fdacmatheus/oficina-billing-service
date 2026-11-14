@@ -173,6 +173,98 @@ describe('API HTTP', () => {
       .expect(400);
   });
 
+  describe('página de checkout', () => {
+    const pagina = (id: string, token: string) =>
+      http().get(`/api/publico/orcamentos/${id}/checkout?token=${token}`);
+
+    it('devolve HTML com o resumo, os dados embutidos e cabeçalhos de segurança (modo fake)', async () => {
+      const o = await salvarOrcamento();
+      const r = await pagina(o.id, o.tokenAprovacao).expect(200);
+      expect(r.headers['content-type']).toContain('text/html');
+      expect(r.headers['referrer-policy']).toBe('no-referrer');
+      expect(r.headers['cache-control']).toBe('no-store');
+      expect(r.text).toContain('OS #OS-0001');
+      expect(r.text).toContain('Troca de óleo');
+      expect(r.text).toContain('R$\u00a0190,50');
+      expect(r.text).not.toContain('sdk.mercadopago.com');
+      const dados = JSON.parse(
+        /<script id="dados" type="application\/json">(.*?)<\/script>/s.exec(r.text)![1],
+      );
+      expect(dados.pagamento).toEqual({ modo: 'fake', publicKey: null });
+      expect(dados.orcamento).toMatchObject({ id: o.id, status: 'PENDENTE', pagamento: null });
+      expect(dados.orcamento.tokenAprovacao).toBeUndefined();
+    });
+
+    it('embute o estado do pagamento com o motivo amigável da recusa', async () => {
+      const o = await salvarOrcamento();
+      await http()
+        .post(`/api/publico/orcamentos/${o.id}/aprovar?token=${o.tokenAprovacao}`)
+        .expect(200);
+      await cobrar(o.id);
+      const antes = await http()
+        .get(`/api/publico/orcamentos/${o.id}?token=${o.tokenAprovacao}`)
+        .expect(200);
+      expect(antes.body.pagamento).toMatchObject({ status: 'AGUARDANDO', mensagemRecusa: null });
+      await http()
+        .post(`/api/publico/orcamentos/${o.id}/pagar?token=${o.tokenAprovacao}`)
+        .send(cartao('fake-recusado'))
+        .expect(200);
+      const r = await pagina(o.id, o.tokenAprovacao).expect(200);
+      const dados = JSON.parse(
+        /<script id="dados" type="application\/json">(.*?)<\/script>/s.exec(r.text)![1],
+      );
+      expect(dados.orcamento.pagamento).toMatchObject({
+        status: 'RECUSADO',
+        motivoRecusa: 'rejected_by_issuer',
+        mensagemRecusa: 'O banco emissor do cartão recusou o pagamento.',
+      });
+      const json = await http()
+        .get(`/api/publico/orcamentos/${o.id}?token=${o.tokenAprovacao}`)
+        .expect(200);
+      expect(json.body.pagamento.status).toBe('RECUSADO');
+    });
+
+    it('escapa dados do cliente no HTML e no JSON embutido', async () => {
+      const o = novoOrcamento();
+      (o.cliente as { nome: string }).nome = '<script>alert(1)</script>';
+      await uow.executar((tx) => tx.orcamentos.salvar(o));
+      const r = await pagina(o.id, o.tokenAprovacao).expect(200);
+      expect(r.text).not.toContain('<script>alert(1)</script>');
+      expect(r.text).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+      expect(r.text).toContain('\\u003cscript>alert(1)\\u003c/script>');
+    });
+
+    it('token inválido, id inexistente ou malformado e falha interna viram páginas de erro', async () => {
+      const o = await salvarOrcamento();
+      const proibido = await pagina(o.id, 'errado').expect(403);
+      expect(proibido.headers['content-type']).toContain('text/html');
+      expect(proibido.text).toContain('Link inválido');
+      expect(
+        (await pagina('6f1c2c1e-8d5c-4c62-9f0b-1b2d3c4d5e6f', 'x').expect(404)).text,
+      ).toContain('Orçamento não encontrado');
+      expect((await pagina('nao-uuid', 'x').expect(404)).text).toContain(
+        'Orçamento não encontrado',
+      );
+      jest.spyOn(uow, 'executar').mockRejectedValueOnce(new Error('db fora'));
+      expect((await pagina(o.id, o.tokenAprovacao).expect(500)).text).toContain('Algo deu errado');
+    });
+
+    it('no modo mercadopago carrega o SDK e entrega a chave pública', async () => {
+      await app.close();
+      app = await criarApp({
+        JWT_SECRET,
+        MP_MODO: 'mercadopago',
+        MP_PUBLIC_KEY: 'TEST-chave-publica',
+      });
+      const o = await salvarOrcamento();
+      const r = await pagina(o.id, o.tokenAprovacao).expect(200);
+      expect(r.text).toContain('<script src="https://sdk.mercadopago.com/js/v2"></script>');
+      expect(r.text).toContain(
+        '"pagamento":{"modo":"mercadopago","publicKey":"TEST-chave-publica"}',
+      );
+    });
+  });
+
   it('erro inesperado vira 500', async () => {
     jest.spyOn(uow, 'executar').mockRejectedValueOnce(new Error('db fora'));
     await http()
