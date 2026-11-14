@@ -36,6 +36,8 @@ async function bootstrap() {
     .addBearerAuth()
     .addTag('publico', 'Link do orçamento enviado ao cliente (protegido pelo token)')
     .addTag('admin', 'Consultas administrativas (JWT)')
+    // Atrás do API Gateway o serviço fica sob um prefixo (/os, /billing, /execution).
+    .addServer(process.env.SWAGGER_PREFIXO ?? '/', 'Ambiente atual')
     .build();
   SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swaggerConfig));
 
