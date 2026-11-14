@@ -126,3 +126,34 @@ resource "aws_sqs_queue_redrive_allow_policy" "billing_comandos_dlq" {
 data "aws_iam_role" "lab" {
   name = "LabRole"
 }
+
+# ---------------------------------------------------------------------------
+# Acesso dos pods à fila. O Learner Lab não permite alterar a role dos nodes do
+# EKS (LabEksNodeRole), então a permissão é dada do lado do recurso: só essa
+# role, só as ações de mensageria. Todos os serviços rodam nos mesmos nodes, então
+# os produtores (outros serviços) e o consumidor (este) usam a mesma role.
+# ---------------------------------------------------------------------------
+data "aws_iam_roles" "nodes_eks" {
+  name_regex = ".*LabEksNodeRole.*"
+}
+
+resource "aws_sqs_queue_policy" "billing_comandos" {
+  queue_url = aws_sqs_queue.billing_comandos.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "PodsDoEks"
+      Effect    = "Allow"
+      Principal = { AWS = tolist(data.aws_iam_roles.nodes_eks.arns) }
+      Action = [
+        "sqs:SendMessage",
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:ChangeMessageVisibility",
+        "sqs:GetQueueAttributes",
+      ]
+      Resource = aws_sqs_queue.billing_comandos.arn
+    }]
+  })
+}
+
