@@ -59,7 +59,7 @@ describe('ComandosService', () => {
             osId: 'os-1',
             orcamentoId: orcamento.id,
             valorTotal: 350.5,
-            linkAprovacao: `http://billing.local/api/publico/orcamentos/${orcamento.id}?token=${orcamento.tokenAprovacao}`,
+            linkAprovacao: `http://billing.local/api/publico/orcamentos/${orcamento.id}/checkout?token=${orcamento.tokenAprovacao}`,
           },
         },
       ]);

@@ -87,6 +87,7 @@ jobs:
       - name: Criar/atualizar o Secret a partir do Secrets Manager
         env:
           MP_ACCESS_TOKEN: ${{ secrets.MP_ACCESS_TOKEN }}
+          MP_PUBLIC_KEY: ${{ secrets.MP_PUBLIC_KEY }}
           MP_WEBHOOK_SECRET: ${{ secrets.MP_WEBHOOK_SECRET }}
         run: |
           # Segredos da plataforma (JWT, chave interna, admin): gerados pelo repositório
@@ -104,6 +105,7 @@ jobs:
             --from-literal=DB_PASSWORD="$(echo "$DB" | jq -r .DB_PASSWORD)" \
             --from-literal=JWT_SECRET="$(jsonv JWT_SECRET)" \
             --from-literal=MP_ACCESS_TOKEN="$MP_ACCESS_TOKEN" \
+            --from-literal=MP_PUBLIC_KEY="$MP_PUBLIC_KEY" \
             --from-literal=MP_WEBHOOK_SECRET="$MP_WEBHOOK_SECRET" \
             --dry-run=client -o yaml | kubectl apply -f -
 

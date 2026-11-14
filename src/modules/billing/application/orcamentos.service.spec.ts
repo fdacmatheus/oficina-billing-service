@@ -28,7 +28,9 @@ describe('OrcamentosService', () => {
 
   it('consulta com token válido e rejeita token inválido ou id inexistente', async () => {
     const o = await salvar();
-    expect((await service.consultarPublico(o.id, o.tokenAprovacao)).id).toBe(o.id);
+    const consulta = await service.consultarPublico(o.id, o.tokenAprovacao);
+    expect(consulta.orcamento.id).toBe(o.id);
+    expect(consulta.pagamento).toBeNull();
     await expect(service.consultarPublico(o.id, 'x')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(service.consultarPublico('nao', 'x')).rejects.toBeInstanceOf(NotFoundException);
   });
