@@ -86,10 +86,13 @@ jobs:
 
       - name: Criar/atualizar o Secret a partir do Secrets Manager
         env:
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
           MP_ACCESS_TOKEN: ${{ secrets.MP_ACCESS_TOKEN }}
           MP_WEBHOOK_SECRET: ${{ secrets.MP_WEBHOOK_SECRET }}
         run: |
+          # Segredos da plataforma (JWT, chave interna, admin): gerados pelo repositório
+          # oficina-fase4-infra no Secrets Manager. Nada disso fica no GitHub.
+          PLAT=$(aws secretsmanager get-secret-value --secret-id oficina/plataforma/segredos --query SecretString --output text)
+          jsonv() { echo "$PLAT" | jq -r ".$1"; }
           kubectl get namespace "$NAMESPACE" >/dev/null 2>&1 || kubectl create namespace "$NAMESPACE"
           DB=$(aws secretsmanager get-secret-value --secret-id oficina/billing/database --query SecretString --output text)
           # Os valores nunca vao para o log: so passam por variavel e stdin.
@@ -99,7 +102,7 @@ jobs:
             --from-literal=DB_NAME="$(echo "$DB" | jq -r .DB_NAME)" \
             --from-literal=DB_USER="$(echo "$DB" | jq -r .DB_USER)" \
             --from-literal=DB_PASSWORD="$(echo "$DB" | jq -r .DB_PASSWORD)" \
-            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=JWT_SECRET="$(jsonv JWT_SECRET)" \
             --from-literal=MP_ACCESS_TOKEN="$MP_ACCESS_TOKEN" \
             --from-literal=MP_WEBHOOK_SECRET="$MP_WEBHOOK_SECRET" \
             --dry-run=client -o yaml | kubectl apply -f -
@@ -108,6 +111,9 @@ jobs:
         run: |
           CONTA=$(aws sts get-caller-identity --query Account --output text)
           sed -i "s|ACCOUNT_ID_PLACEHOLDER|$CONTA|g" k8s/configmap.yaml
+          # Links de aprovação/pagamento enviados ao cliente apontam para o gateway real.
+          GW=$(aws apigatewayv2 get-apis --query "Items[?Name=='oficina-api'].ApiEndpoint | [0]" --output text)
+          sed -i "s|https://api.oficina.exemplo.com.br|$GW/billing|g" k8s/configmap.yaml
           sed -i "s|IMAGEM_PLACEHOLDER|${{ steps.imagem.outputs.imagem }}|g" k8s/deployment.yaml
           kubectl apply -f k8s/
 
